@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">RevisApp</string>
+    <string name="title_activity_main">RevisApp</string>
+    <string name="package_name">com.revisapp.app</string>
+    <string name="custom_url_scheme">com.revisapp.app</string>
+</resources>
