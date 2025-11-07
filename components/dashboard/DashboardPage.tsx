@@ -35,7 +35,9 @@ const DashboardPage: React.FC = () => {
         }
 
         const fetchWorkshops = async () => {
-            if (currentSearchedCep) {
+            // Só busca se tiver um CEP válido (5 ou mais dígitos)
+            const cleanCep = currentSearchedCep.replace(/\D/g, '');
+            if (cleanCep.length >= 5) {
                 setIsLoading(true);
                 setError(null);
                 try {
@@ -48,16 +50,16 @@ const DashboardPage: React.FC = () => {
                     setIsLoading(false);
                 }
             } else {
-                 setIsLoading(false);
-                 setWorkshops([]);
+                setIsLoading(false);
+                setWorkshops([]);
+                // Mostra automaticamente o card de busca se não houver CEP
+                if (!currentSearchedCep) {
+                    setShowSearchCard(true);
+                }
             }
         };
 
-        if(currentSearchedCep) {
-           fetchWorkshops();
-        } else {
-           setIsLoading(false);
-        }
+        fetchWorkshops();
     }, [currentSearchedCep]);
 
     const handleSearch = (e: React.FormEvent) => {

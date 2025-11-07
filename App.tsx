@@ -8,6 +8,7 @@ import RegisterPage from './components/auth/RegisterPage';
 import VerificationPage from './components/auth/VerificationPage';
 import DashboardPage from './components/dashboard/DashboardPage';
 import { AuthStatus } from './types';
+import { DebugLogger } from './components/common/DebugLogger';
 
 const AppContent: React.FC = () => {
     const { authStatus } = useAuth();
@@ -31,6 +32,7 @@ const App: React.FC = () => {
         <AuthProvider>
             <div className="min-h-screen bg-brand-gray text-brand-text">
                 <AppContent />
+                <DebugLogger />
             </div>
         </AuthProvider>
     );

@@ -2,6 +2,7 @@ import React, { createContext, useState, useEffect, useCallback } from 'react';
 import type { User } from '../types';
 import { AuthStatus } from '../types';
 import { sendVerificationEmail } from '../services/emailService';
+import { logger } from '../services/logService';
 
 interface AuthContextType {
     authStatus: AuthStatus;
@@ -72,13 +73,21 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
         let apiFailed = false;
         try {
+            logger.logInfo('Iniciando login', { email });
+            logger.logApiCall('GET', 'https://dansis-ia.com/public/api/usuarios');
+            
             const response = await fetch('https://dansis-ia.com/public/api/usuarios');
+            logger.logApiResponse('https://dansis-ia.com/public/api/usuarios', response.status);
+            
             if (response.ok) {
                 interface ApiUser { name: string; email: string; cep_usuario: string | null; }
                 const apiUsers: ApiUser[] = await response.json();
+                logger.logInfo('Usuários recebidos da API', { count: apiUsers.length });
+                
                 const apiUser = apiUsers.find(u => u.email === email);
 
                 if (apiUser) {
+                    logger.logInfo('Usuário encontrado na API', { email: apiUser.email });
                     const finalUser: User = {
                         name: apiUser.name,
                         email: apiUser.email,
@@ -87,12 +96,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                     };
                     completeLogin(finalUser);
                     return { success: true };
+                } else {
+                    logger.logInfo('Usuário não encontrado na API', { email });
                 }
             } else {
                 apiFailed = true;
+                logger.logError('Falha na API de login', { status: response.status, statusText: response.statusText });
             }
         } catch (error) {
             apiFailed = true;
+            logger.logError('Erro de rede no login', error);
         }
 
         if (regUserRaw) {
@@ -110,10 +123,43 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }, []);
 
     const register = useCallback(async (userData: User): Promise<{ success: boolean; error?: string }> => {
+        logger.logInfo('Iniciando registro', { email: userData.email, name: userData.name });
+        
+        // Verificar se o email já existe na base de dados
+        try {
+            logger.logApiCall('GET', 'https://dansis-ia.com/public/api/usuarios', { reason: 'Verificação de email duplicado' });
+            
+            const response = await fetch('https://dansis-ia.com/public/api/usuarios');
+            logger.logApiResponse('https://dansis-ia.com/public/api/usuarios', response.status);
+            
+            if (response.ok) {
+                interface ApiUser { name: string; email: string; cep_usuario: string | null; }
+                const apiUsers: ApiUser[] = await response.json();
+                logger.logInfo('Verificando email duplicado', { totalUsers: apiUsers.length, emailToCheck: userData.email });
+                
+                const existingUser = apiUsers.find(u => u.email.toLowerCase() === userData.email.toLowerCase());
+                
+                if (existingUser) {
+                    logger.logInfo('Email já existe na base de dados', { email: userData.email });
+                    return { success: false, error: 'Este email já está cadastrado. Por favor, faça login ou use outro email.' };
+                } else {
+                    logger.logInfo('Email disponível para cadastro', { email: userData.email });
+                }
+            } else {
+                logger.logError('Falha ao verificar email duplicado', { status: response.status, statusText: response.statusText });
+            }
+        } catch (error) {
+            logger.logError('Erro ao verificar email duplicado', error);
+            // Continua com o registro mesmo se a verificação falhar
+        }
+
         const code = Math.floor(100000 + Math.random() * 900000).toString();
+        logger.logInfo('Código de verificação gerado', { email: userData.email, codeLength: code.length });
         
         try {
+            logger.logInfo('Enviando email de verificação', { to: userData.email, name: userData.name });
             await sendVerificationEmail(userData.name, userData.email, code);
+            logger.logInfo('Email de verificação enviado com sucesso', { email: userData.email });
 
             localStorage.setItem(`revisapp_reg_${userData.email}`, JSON.stringify(userData));
             setVerificationCode(code);
@@ -122,26 +168,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
             return { success: true };
         } catch (e) {
-            console.error("Registration failed", e);
+            logger.logError('Falha ao enviar email de verificação', e);
             return { success: false, error: 'Não foi possível enviar o e-mail de verificação. Verifique o endereço e tente novamente.' };
         }
     }, []);
 
     const verify = useCallback(async (code: string): Promise<{ success: boolean; reason?: 'api_error' | 'invalid_code' | 'email_exists' }> => {
+        logger.logInfo('Iniciando verificação de código', { codeProvided: code.length });
+        
         if (code !== verificationCode || !user) {
+            logger.logError('Código inválido ou usuário não encontrado', { 
+                codeMatch: code === verificationCode, 
+                hasUser: !!user 
+            });
             return { success: false, reason: 'invalid_code' };
         }
 
         try {
             // FIX: Sending data in the exact format the user entered it, as the API accepts hyphens.
             const apiUserData = {
-                nome: user.name,
+                name: user.name,
                 email: user.email,
                 cep: user.cep,
                 placa: user.placa.toUpperCase(),
             };
 
-            const response = await fetch('https://pink-chough-163744.hostingersite.com/api/usuarios/cadastrar', {
+            logger.logApiCall('POST', 'https://dansis-ia.com/public/api/usuarios/revisapp', apiUserData);
+
+            const response = await fetch('https://dansis-ia.com/public/api/usuarios/revisapp', {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -150,24 +204,36 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
                 body: JSON.stringify(apiUserData),
             });
 
+            const responseText = await response.text();
+            logger.logApiResponse('https://dansis-ia.com/public/api/usuarios/revisapp', response.status, {
+                responseText,
+                ok: response.ok,
+                statusText: response.statusText
+            });
+
             if (response.ok) {
+                logger.logInfo('Cadastro concluído com sucesso', { email: user.email });
                 localStorage.setItem('revisapp_user', JSON.stringify(user));
                 setVerificationCode(null);
                 setAuthStatus(AuthStatus.Authenticated);
                 return { success: true };
             } else {
-                const responseText = await response.text();
-                console.error('API registration failed:', response.status, responseText);
+                logger.logError('Falha no cadastro da API', { 
+                    status: response.status, 
+                    statusText: response.statusText,
+                    responseText 
+                });
                 
                 // Check if the error is due to an existing email
                 if (responseText.toLowerCase().includes('email já cadastrado')) {
+                    logger.logInfo('Email já cadastrado detectado na resposta');
                     return { success: false, reason: 'email_exists' };
                 }
 
                 return { success: false, reason: 'api_error' };
             }
         } catch (error) {
-            console.error('Network error during registration:', error);
+            logger.logError('Erro de rede durante cadastro', error);
             return { success: false, reason: 'api_error' };
         }
     }, [verificationCode, user]);
